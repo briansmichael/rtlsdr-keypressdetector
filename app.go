@@ -17,20 +17,22 @@ func NewApp(cfg *Config, logger *log.Logger) *App {
 
 // Run blocks until ctx is cancelled or a fatal error occurs.
 func (a *App) Run(ctx context.Context) error {
-	// 1. GPIO output driver
-	gpio, err := NewGPIOPin(a.cfg.OutputPin, a.logger)
-	if err != nil {
-		return err
+	// In calibration mode, skip GPIO entirely and just run the SDR pipeline
+	var gpio OutputDriver
+	if !a.cfg.Calibrate {
+		pin, err := NewGPIOPin(a.cfg.OutputPin, a.logger)
+		if err != nil {
+			return err
+		}
+		defer pin.Close()
+		gpio = pin
+	} else {
+		gpio = &noopOutput{}
+		a.logger.Println("[GPIO] Calibration mode – GPIO disabled")
 	}
-	defer gpio.Close()
 
-	// 2. Key-press detector (state machine)
 	detector := NewDetector(a.cfg, gpio, a.logger)
-
-	// 3. Squelch detector — feeds events into the state machine
 	squelch := NewSquelchDetector(a.cfg, detector.HandleEvent, a.logger)
-
-	// 4. RTL-FM source — streams raw PCM into the squelch detector
 	sdr := NewSDR(a.cfg, squelch.ProcessChunk, a.logger)
 
 	a.logger.Println("Starting SDR pipeline …")
@@ -38,10 +40,14 @@ func (a *App) Run(ctx context.Context) error {
 		return err
 	}
 
-	// Block until context cancelled
 	<-ctx.Done()
 	a.logger.Println("Shutdown signal received, stopping …")
 	sdr.Stop()
 	detector.Stop()
 	return nil
 }
+
+// noopOutput satisfies OutputDriver without touching any hardware.
+type noopOutput struct{}
+func (n *noopOutput) SetHigh() error { return nil }
+func (n *noopOutput) SetLow() error  { return nil }

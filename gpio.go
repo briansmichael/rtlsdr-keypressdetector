@@ -81,12 +81,9 @@ func (g *GPIOPin) write(val string) error {
 }
 
 func (g *GPIOPin) export() error {
-	// Already exported? (e.g. from a previous run that didn't clean up)
-	if _, err := os.Stat(fmt.Sprintf("/sys/class/gpio/gpio%d", g.number)); err == nil {
-		return nil
-	}
-	return writeFile("/sys/class/gpio/export",
-		strconv.Itoa(g.number))
+	// Unexport first in case it was left exported by a previous run
+	_ = writeFile("/sys/class/gpio/unexport", strconv.Itoa(g.number))
+	return writeFile("/sys/class/gpio/export", strconv.Itoa(g.number))
 }
 
 func (g *GPIOPin) unexport() error {
